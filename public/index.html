@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HomeClimate</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+    h1 {
+      text-align: center;
+      font-weight: 300;
+      font-size: 1.2rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #8b949e;
+      margin-bottom: 28px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: 700px;
+      margin: 0 auto 32px;
+    }
+    @media (max-width: 420px) { .cards { grid-template-columns: 1fr; } }
+    .card {
+      background: #161b22;
+      border-radius: 14px;
+      padding: 22px 20px 16px;
+      border-top: 3px solid transparent;
+    }
+    .card.outdoor { border-color: #f5c518; }
+    .card.indoor  { border-color: #4a9eff; }
+    .card-label   { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; margin-bottom: 10px; }
+    .card-temp    { font-size: 3rem; font-weight: 200; line-height: 1; }
+    .card-hum     { font-size: 1.1rem; color: #8b949e; margin-top: 6px; }
+    .card-time    { font-size: 0.7rem; color: #484f58; margin-top: 14px; }
+    .no-data      { color: #484f58; }
+
+    .charts {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .chart-box {
+      background: #161b22;
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .chart-box h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8b949e; margin-bottom: 16px; }
+    canvas        { max-height: 180px; }
+
+    .range-btns { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; }
+    .range-btns button {
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #8b949e;
+      border-radius: 6px;
+      padding: 5px 14px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .range-btns button.active {
+      background: #1f6feb;
+      border-color: #1f6feb;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1>HomeClimate</h1>
+
+  <div class="cards">
+    <div class="card outdoor">
+      <div class="card-label">Улица</div>
+      <div class="card-temp no-data" id="out-temp">—</div>
+      <div class="card-time" id="out-time"></div>
+    </div>
+    <div class="card indoor">
+      <div class="card-label">Дом</div>
+      <div class="card-temp no-data" id="in-temp">—</div>
+      <div class="card-hum" id="in-hum"></div>
+      <div class="card-time" id="in-time"></div>
+    </div>
+  </div>
+
+  <div class="range-btns">
+    <button onclick="setRange(6)"  id="btn6">6ч</button>
+    <button onclick="setRange(24)" id="btn24" class="active">24ч</button>
+    <button onclick="setRange(72)" id="btn72">3 дня</button>
+    <button onclick="setRange(168)" id="btn168">7 дней</button>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Температура</h2>
+      <canvas id="tempChart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Влажность (дом)</h2>
+      <canvas id="humChart"></canvas>
+    </div>
+  </div>
+
+<script>
+  let currentHours = 24;
+  let tempChart, humChart;
+
+  const chartBase = {
+    options: {
+      responsive: true,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'dd.MM HH:mm', displayFormats: { hour: 'HH:mm', day: 'dd.MM' } },
+          ticks: { color: '#484f58', maxTicksLimit: 6 },
+          grid:  { color: '#21262d' }
+        },
+        y: {
+          ticks: { color: '#484f58' },
+          grid:  { color: '#21262d' }
+        }
+      },
+      elements: { point: { radius: 0 }, line: { tension: 0.3, borderWidth: 2 } }
+    }
+  };
+
+  function timeAgo(iso) {
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (m < 1)  return 'только что';
+    if (m < 60) return m + ' мин назад';
+    return Math.round(m / 60) + ' ч назад';
+  }
+
+  function fmt(v, unit) { return v != null ? v.toFixed(1) + unit : '—'; }
+
+  async function loadLatest() {
+    try {
+      const rows = await fetch('/api/latest').then(r => r.json());
+      rows.forEach(s => {
+        if (s.sensor_id === 1) {
+          const el = document.getElementById('out-temp');
+          el.textContent = fmt(s.temperature, ' °C');
+          el.classList.toggle('no-data', s.temperature == null);
+          document.getElementById('out-time').textContent = timeAgo(s.created_at);
+        }
+        if (s.sensor_id === 2) {
+          const el = document.getElementById('in-temp');
+          el.textContent = fmt(s.temperature, ' °C');
+          el.classList.toggle('no-data', s.temperature == null);
+          document.getElementById('in-hum').textContent = s.humidity != null ? fmt(s.humidity, ' %') : '';
+          document.getElementById('in-time').textContent = timeAgo(s.created_at);
+        }
+      });
+    } catch (e) { console.error(e); }
+  }
+
+  async function loadCharts() {
+    try {
+      const rows = await fetch(`/api/history?hours=${currentHours}`).then(r => r.json());
+      const ds1  = rows.filter(r => r.sensor_id === 1).map(r => ({ x: r.created_at, y: r.temperature }));
+      const ds2  = rows.filter(r => r.sensor_id === 2).map(r => ({ x: r.created_at, y: r.temperature }));
+      const hum  = rows.filter(r => r.sensor_id === 2 && r.humidity != null).map(r => ({ x: r.created_at, y: r.humidity }));
+
+      if (tempChart) tempChart.destroy();
+      tempChart = new Chart(document.getElementById('tempChart'), {
+        type: 'line',
+        ...chartBase,
+        data: {
+          datasets: [
+            { label: 'Улица °C', data: ds1, borderColor: '#f5c518', backgroundColor: '#f5c51815', fill: true },
+            { label: 'Дом °C',   data: ds2, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
+          ]
+        }
+      });
+
+      if (humChart) humChart.destroy();
+      humChart = new Chart(document.getElementById('humChart'), {
+        type: 'line',
+        ...chartBase,
+        data: {
+          datasets: [
+            { label: 'Влажность %', data: hum, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
+          ]
+        }
+      });
+    } catch(e) { console.error(e); }
+  }
+
+  function setRange(h) {
+    currentHours = h;
+    ['6','24','72','168'].forEach(n => document.getElementById('btn'+n).classList.remove('active'));
+    document.getElementById('btn'+h).classList.add('active');
+    loadCharts();
+  }
+
+  loadLatest();
+  loadCharts();
+  setInterval(loadLatest, 60000);
+  setInterval(loadCharts, 5 * 60000);
+</script>
+</body>
+</html>
