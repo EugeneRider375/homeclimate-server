@@ -77,20 +77,20 @@ app.get('/api/latest', async (req, res) => {
 
 // ── GET /api/history?hours=24 — история для графиков ─────────────────────────
 app.get('/api/history', async (req, res) => {
-  const hours     = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 168);
+  const all       = req.query.all === 'true';
+  const hours     = all ? null : Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 87600);
   const sensor_id = parseInt(req.query.sensor_id) || null;
 
   try {
     const params = [hours];
-    let query = `
-      SELECT sensor_id, temperature, humidity, created_at
-      FROM readings
-      WHERE created_at > NOW() - ($1 || ' hours')::interval
-        AND temp_valid = true
-    `;
-    if (sensor_id) {
-      params.push(sensor_id);
-      query += ` AND sensor_id = $2`;
+    let query, params = [];
+    if (all) {
+      query = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = true`;
+      if (sensor_id) { params.push(sensor_id); query += ` AND sensor_id = $1`; }
+    } else {
+      params.push(hours);
+      query = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE created_at > NOW() - ($1 || ' hours')::interval AND temp_valid = true`;
+      if (sensor_id) { params.push(sensor_id); query += ` AND sensor_id = $2`; }
     }
     query += ` ORDER BY created_at ASC`;
 

@@ -96,10 +96,13 @@
   </div>
 
   <div class="range-btns">
-    <button onclick="setRange(6)"  id="btn6">6ч</button>
-    <button onclick="setRange(24)" id="btn24" class="active">24ч</button>
-    <button onclick="setRange(72)" id="btn72">3 дня</button>
-    <button onclick="setRange(168)" id="btn168">7 дней</button>
+    <button onclick="setRange(6)"    id="btn6">6ч</button>
+    <button onclick="setRange(24)"   id="btn24" class="active">24ч</button>
+    <button onclick="setRange(72)"   id="btn72">3 дня</button>
+    <button onclick="setRange(168)"  id="btn168">7 дней</button>
+    <button onclick="setRange(720)"  id="btn720">Месяц</button>
+    <button onclick="setRange(8760)" id="btn8760">Год</button>
+    <button onclick="setRange(0)"    id="btn0">Всё</button>
   </div>
 
   <div class="charts">
@@ -115,6 +118,7 @@
 
 <script>
   let currentHours = 24;
+  let currentAll   = false;
   let tempChart, humChart;
 
   const chartBase = {
@@ -171,7 +175,8 @@
 
   async function loadCharts() {
     try {
-      const rows = await fetch(`/api/history?hours=${currentHours}`).then(r => r.json());
+      const url  = currentAll ? '/api/history?all=true' : `/api/history?hours=${currentHours}`;
+      const rows = await fetch(url).then(r => r.json());
       const ds1  = rows.filter(r => r.sensor_id === 1).map(r => ({ x: r.created_at, y: r.temperature }));
       const ds2  = rows.filter(r => r.sensor_id === 2).map(r => ({ x: r.created_at, y: r.temperature }));
       const hum  = rows.filter(r => r.sensor_id === 2 && r.humidity != null).map(r => ({ x: r.created_at, y: r.humidity }));
@@ -203,7 +208,8 @@
 
   function setRange(h) {
     currentHours = h;
-    ['6','24','72','168'].forEach(n => document.getElementById('btn'+n).classList.remove('active'));
+    currentAll   = (h === 0);
+    ['6','24','72','168','720','8760','0'].forEach(n => document.getElementById('btn'+n).classList.remove('active'));
     document.getElementById('btn'+h).classList.add('active');
     loadCharts();
   }
