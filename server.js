@@ -82,7 +82,6 @@ app.get('/api/history', async (req, res) => {
   const sensor_id = parseInt(req.query.sensor_id) || null;
 
   try {
-    const params = [hours];
     let query, params = [];
     if (all) {
       query = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = true`;
