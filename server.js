@@ -103,6 +103,7 @@ app.get('/api/history', async (req, res) => {
 
 // ── Старт ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`HomeClimate server on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`HomeClimate server on port ${PORT}`);
+  initDB().catch(err => console.error('DB init error:', err));
 });
