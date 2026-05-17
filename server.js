@@ -1,33 +1,29 @@
-const express = require('express');
-const { Pool }  = require('pg');
-const path      = require('path');
-const https     = require('https');
+const express  = require('express');
+const Database = require('better-sqlite3');
+const path     = require('path');
+const https    = require('https');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── PostgreSQL (Railway) ───────────────────────────────────────────────────────
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+// ── SQLite ────────────────────────────────────────────────────────────────────
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'homeclimate.db');
+const db = new Database(DB_PATH);
 
-async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS readings (
-      id          SERIAL PRIMARY KEY,
-      sensor_id   INTEGER NOT NULL,
-      temperature REAL,
-      humidity    REAL,
-      temp_valid  BOOLEAN DEFAULT true,
-      hum_valid   BOOLEAN DEFAULT false,
-      created_at  TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_readings_time ON readings (created_at DESC)`);
-  console.log('DB ready');
-}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS readings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sensor_id   INTEGER NOT NULL,
+    temperature REAL,
+    humidity    REAL,
+    temp_valid  INTEGER DEFAULT 1,
+    hum_valid   INTEGER DEFAULT 0,
+    created_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_readings_time ON readings (created_at DESC);
+`);
+console.log(`DB: ${DB_PATH}`);
 
 // ── Конфиг ────────────────────────────────────────────────────────────────────
 const API_KEY            = process.env.API_KEY;
@@ -75,14 +71,14 @@ function auth(req, res, next) {
 }
 
 // ── POST /api/data ────────────────────────────────────────────────────────────
-app.post('/api/data', auth, async (req, res) => {
+app.post('/api/data', auth, (req, res) => {
   const { sensor_id, temperature, humidity, temp_valid, hum_valid } = req.body;
   if (!sensor_id) return res.status(400).json({ error: 'sensor_id required' });
   try {
-    await pool.query(
-      `INSERT INTO readings (sensor_id, temperature, humidity, temp_valid, hum_valid) VALUES ($1,$2,$3,$4,$5)`,
-      [sensor_id, temperature ?? null, humidity ?? null, temp_valid ?? true, hum_valid ?? false]
-    );
+    db.prepare(
+      `INSERT INTO readings (sensor_id, temperature, humidity, temp_valid, hum_valid)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(sensor_id, temperature ?? null, humidity ?? null, temp_valid ? 1 : 0, hum_valid ? 1 : 0);
     console.log(`[data] sensor=${sensor_id} t=${temperature} h=${humidity}`);
     if (temp_valid) checkAlerts(sensor_id, temperature);
     res.json({ ok: true });
@@ -93,37 +89,38 @@ app.post('/api/data', auth, async (req, res) => {
 });
 
 // ── GET /api/latest ───────────────────────────────────────────────────────────
-app.get('/api/latest', async (req, res) => {
+app.get('/api/latest', (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT DISTINCT ON (sensor_id)
-        sensor_id, temperature, humidity, temp_valid, hum_valid, created_at
-      FROM readings ORDER BY sensor_id, created_at DESC
-    `);
-    res.json(result.rows);
+    const rows = db.prepare(`
+      SELECT sensor_id, temperature, humidity, temp_valid, hum_valid, created_at
+      FROM readings
+      WHERE id IN (SELECT MAX(id) FROM readings GROUP BY sensor_id)
+      ORDER BY sensor_id
+    `).all();
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'DB error' });
   }
 });
 
 // ── GET /api/history ──────────────────────────────────────────────────────────
-app.get('/api/history', async (req, res) => {
+app.get('/api/history', (req, res) => {
   const all       = req.query.all === 'true';
   const hours     = all ? null : Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 87600);
   const sensor_id = parseInt(req.query.sensor_id) || null;
   try {
-    let query, params = [];
-    if (all) {
-      query = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = true`;
-      if (sensor_id) { params.push(sensor_id); query += ` AND sensor_id = $1`; }
-    } else {
-      params.push(hours);
-      query = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE created_at > NOW() - ($1 || ' hours')::interval AND temp_valid = true`;
-      if (sensor_id) { params.push(sensor_id); query += ` AND sensor_id = $2`; }
+    let query  = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = 1`;
+    const params = [];
+    if (!all) {
+      query += ` AND datetime(created_at) > datetime('now', ?)`;
+      params.push(`-${hours} hours`);
+    }
+    if (sensor_id) {
+      query += ` AND sensor_id = ?`;
+      params.push(sensor_id);
     }
     query += ` ORDER BY created_at ASC`;
-    const result = await pool.query(query, params);
-    res.json(result.rows);
+    res.json(db.prepare(query).all(...params));
   } catch (err) {
     res.status(500).json({ error: 'DB error' });
   }
@@ -131,7 +128,4 @@ app.get('/api/history', async (req, res) => {
 
 // ── Старт ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`HomeClimate server on port ${PORT}`);
-  initDB().catch(err => console.error('DB init error:', err));
-});
+app.listen(PORT, () => console.log(`HomeClimate server on port ${PORT}`));
