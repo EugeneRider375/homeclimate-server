@@ -5,7 +5,7 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
 # Убираем build-инструменты — образ меньше
 RUN apk del python3 make g++
