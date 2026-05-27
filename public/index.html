@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -40,7 +40,15 @@
     }
     .card.outdoor { border-color: #f5c518; }
     .card.indoor  { border-color: #4a9eff; }
-    .card-label   { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; margin-bottom: 10px; }
+    .card-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .card-label   { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #8b949e; }
+    .status-dot   {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: #484f58; /* default: unknown */
+      margin-left: auto;
+    }
+    .status-dot.online  { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+    .status-dot.offline { background: #f85149; box-shadow: 0 0 6px #f8514966; }
     .card-temp    { font-size: 3rem; font-weight: 200; line-height: 1; }
     .card-hum     { font-size: 1.1rem; color: #8b949e; margin-top: 6px; }
     .card-time    { font-size: 0.7rem; color: #484f58; margin-top: 14px; }
@@ -59,9 +67,9 @@
       padding: 20px;
     }
     .chart-box h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8b949e; margin-bottom: 16px; }
-    canvas        { max-height: 180px; }
+    canvas { max-height: 180px; }
 
-    .range-btns { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; }
+    .range-btns { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
     .range-btns button {
       background: #161b22;
       border: 1px solid #30363d;
@@ -83,12 +91,18 @@
 
   <div class="cards">
     <div class="card outdoor">
-      <div class="card-label">Улица</div>
+      <div class="card-header">
+        <div class="card-label">Outdoor</div>
+        <div class="status-dot" id="out-dot"></div>
+      </div>
       <div class="card-temp no-data" id="out-temp">—</div>
       <div class="card-time" id="out-time"></div>
     </div>
     <div class="card indoor">
-      <div class="card-label">Дом</div>
+      <div class="card-header">
+        <div class="card-label">Indoor</div>
+        <div class="status-dot" id="in-dot"></div>
+      </div>
       <div class="card-temp no-data" id="in-temp">—</div>
       <div class="card-hum" id="in-hum"></div>
       <div class="card-time" id="in-time"></div>
@@ -96,27 +110,29 @@
   </div>
 
   <div class="range-btns">
-    <button onclick="setRange(6)"    id="btn6">6ч</button>
-    <button onclick="setRange(24)"   id="btn24" class="active">24ч</button>
-    <button onclick="setRange(72)"   id="btn72">3 дня</button>
-    <button onclick="setRange(168)"  id="btn168">7 дней</button>
-    <button onclick="setRange(720)"  id="btn720">Месяц</button>
-    <button onclick="setRange(8760)" id="btn8760">Год</button>
-    <button onclick="setRange(0)"    id="btn0">Всё</button>
+    <button onclick="setRange(6)"    id="btn6">6h</button>
+    <button onclick="setRange(24)"   id="btn24" class="active">24h</button>
+    <button onclick="setRange(72)"   id="btn72">3d</button>
+    <button onclick="setRange(168)"  id="btn168">7d</button>
+    <button onclick="setRange(720)"  id="btn720">Month</button>
+    <button onclick="setRange(8760)" id="btn8760">Year</button>
+    <button onclick="setRange(0)"    id="btn0">All</button>
   </div>
 
   <div class="charts">
     <div class="chart-box">
-      <h2>Температура</h2>
+      <h2>Temperature</h2>
       <canvas id="tempChart"></canvas>
     </div>
     <div class="chart-box">
-      <h2>Влажность (дом)</h2>
+      <h2>Humidity (indoor)</h2>
       <canvas id="humChart"></canvas>
     </div>
   </div>
 
 <script>
+  const OFFLINE_MS = 20 * 60 * 1000;  // 20 min → offline
+
   let currentHours = 24;
   let currentAll   = false;
   let tempChart, humChart;
@@ -145,12 +161,17 @@
 
   function timeAgo(iso) {
     const m = Math.round((Date.now() - new Date(iso)) / 60000);
-    if (m < 1)  return 'только что';
-    if (m < 60) return m + ' мин назад';
-    return Math.round(m / 60) + ' ч назад';
+    if (m < 1)  return 'just now';
+    if (m < 60) return m + ' min ago';
+    return Math.round(m / 60) + 'h ago';
   }
 
   function fmt(v, unit) { return v != null ? v.toFixed(1) + unit : '—'; }
+
+  function setDot(dotEl, iso) {
+    const age = Date.now() - new Date(iso);
+    dotEl.className = 'status-dot ' + (age < OFFLINE_MS ? 'online' : 'offline');
+  }
 
   async function loadLatest() {
     try {
@@ -161,6 +182,7 @@
           el.textContent = fmt(s.temperature, ' °C');
           el.classList.toggle('no-data', s.temperature == null);
           document.getElementById('out-time').textContent = timeAgo(s.created_at);
+          setDot(document.getElementById('out-dot'), s.created_at);
         }
         if (s.sensor_id === 2) {
           const el = document.getElementById('in-temp');
@@ -168,6 +190,7 @@
           el.classList.toggle('no-data', s.temperature == null);
           document.getElementById('in-hum').textContent = s.humidity != null ? fmt(s.humidity, ' %') : '';
           document.getElementById('in-time').textContent = timeAgo(s.created_at);
+          setDot(document.getElementById('in-dot'), s.created_at);
         }
       });
     } catch (e) { console.error(e); }
@@ -187,8 +210,8 @@
         ...chartBase,
         data: {
           datasets: [
-            { label: 'Улица °C', data: ds1, borderColor: '#f5c518', backgroundColor: '#f5c51815', fill: true },
-            { label: 'Дом °C',   data: ds2, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
+            { label: 'Outdoor °C', data: ds1, borderColor: '#f5c518', backgroundColor: '#f5c51815', fill: true },
+            { label: 'Indoor °C',  data: ds2, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
           ]
         }
       });
@@ -199,7 +222,7 @@
         ...chartBase,
         data: {
           datasets: [
-            { label: 'Влажность %', data: hum, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
+            { label: 'Humidity %', data: hum, borderColor: '#4a9eff', backgroundColor: '#4a9eff15', fill: true }
           ]
         }
       });

@@ -25,17 +25,12 @@ db.exec(`
 `);
 console.log(`DB: ${DB_PATH}`);
 
-// ── Конфиг ────────────────────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 const API_KEY            = process.env.API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
-const TEMP_MIN           = parseFloat(process.env.TEMP_MIN || '-10');
-const TEMP_MAX           = parseFloat(process.env.TEMP_MAX || '35');
 
-// ── Telegram алерты ───────────────────────────────────────────────────────────
-const lastAlert = {};
-const ALERT_COOLDOWN = 30 * 60 * 1000;
-
+// ── Telegram ──────────────────────────────────────────────────────────────────
 function sendTelegram(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   const body = JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text });
@@ -50,20 +45,107 @@ function sendTelegram(text) {
   req.end();
 }
 
-function checkAlerts(sensor_id, temperature) {
+// ── Alert state ───────────────────────────────────────────────────────────────
+const ALERT_COOLDOWN    = 30 * 60 * 1000;  // 30 min between repeat alerts
+const OFFLINE_THRESHOLD = 20 * 60 * 1000;  // 20 min silence = offline
+
+const alertActive   = {};  // key -> bool  (condition currently active)
+const alertCooldown = {};  // key -> timestamp of last send
+const lastDataTime  = {};  // sensor_id -> timestamp
+const lastValues    = {};  // sensor_id -> { temperature, humidity }
+
+function canAlert(key) {
+  return !alertCooldown[key] || Date.now() - alertCooldown[key] > ALERT_COOLDOWN;
+}
+
+function fireAlert(key, text) {
+  alertActive[key]   = true;
+  alertCooldown[key] = Date.now();
+  console.log(`[alert] ${key}: ${text}`);
+  sendTelegram(text);
+}
+
+function fireRecovery(key, text) {
+  alertActive[key]   = false;
+  alertCooldown[key] = Date.now();
+  console.log(`[recovery] ${key}: ${text}`);
+  sendTelegram(text);  // recovery always sends immediately
+}
+
+// ── Check alerts after each reading ──────────────────────────────────────────
+function checkAlerts(sensor_id, temperature, humidity) {
+  lastDataTime[sensor_id] = Date.now();
+  lastValues[sensor_id]   = { temperature, humidity };
+
+  // Sensor came back online
+  if (alertActive[`offline_${sensor_id}`]) {
+    const label = sensor_id === 1 ? 'Outdoor' : 'Indoor';
+    fireRecovery(`offline_${sensor_id}`, `✅ HomeClimate — ${label} sensor back online`);
+  }
+
   if (temperature == null) return;
-  const now = Date.now();
-  if (temperature < TEMP_MIN || temperature > TEMP_MAX) {
-    if (!lastAlert[sensor_id] || now - lastAlert[sensor_id] > ALERT_COOLDOWN) {
-      lastAlert[sensor_id] = now;
-      const label = sensor_id === 1 ? 'Улица' : 'Дом';
-      const emoji = temperature < TEMP_MIN ? '🥶' : '🌡';
-      sendTelegram(`${emoji} HomeClimate — ${label}: ${temperature.toFixed(1)}°C`);
+
+  // ── Outdoor sensor ────────────────────────────────────────────────────────
+  if (sensor_id === 1) {
+    // Frost: outdoor < 3°C
+    if (temperature < 3) {
+      if (!alertActive['frost'] && canAlert('frost'))
+        fireAlert('frost', `❄️ HomeClimate — Frost warning: outdoor ${temperature.toFixed(1)}°C`);
+    } else if (alertActive['frost']) {
+      fireRecovery('frost', `✅ HomeClimate — No more frost: outdoor ${temperature.toFixed(1)}°C`);
+    }
+  }
+
+  // ── Indoor sensor ─────────────────────────────────────────────────────────
+  if (sensor_id === 2) {
+    // Home too cold < 10°C
+    if (temperature < 10) {
+      if (!alertActive['home_cold'] && canAlert('home_cold'))
+        fireAlert('home_cold', `🥶 HomeClimate — Home is cold: ${temperature.toFixed(1)}°C`);
+    } else if (alertActive['home_cold']) {
+      fireRecovery('home_cold', `✅ HomeClimate — Home temperature OK: ${temperature.toFixed(1)}°C`);
+    }
+
+    // High humidity > 70%
+    if (humidity != null) {
+      if (humidity > 70) {
+        if (!alertActive['humidity_high'] && canAlert('humidity_high'))
+          fireAlert('humidity_high', `💧 HomeClimate — High humidity: ${humidity.toFixed(0)}%`);
+      } else if (alertActive['humidity_high']) {
+        fireRecovery('humidity_high', `✅ HomeClimate — Humidity normal: ${humidity.toFixed(0)}%`);
+      }
+    }
+  }
+
+  // ── Cross-sensor: outdoor warmer than indoor → close windows ─────────────
+  const out = lastValues[1]?.temperature;
+  const ind = lastValues[2]?.temperature;
+  if (out != null && ind != null) {
+    if (out > ind + 2) {
+      if (!alertActive['windows'] && canAlert('windows'))
+        fireAlert('windows',
+          `🌡 HomeClimate — Close windows! Outdoor (${out.toFixed(1)}°C) warmer than indoor (${ind.toFixed(1)}°C)`);
+    } else if (alertActive['windows']) {
+      fireRecovery('windows',
+        `✅ HomeClimate — Outdoor cooler again: ${out.toFixed(1)}°C out / ${ind.toFixed(1)}°C in`);
     }
   }
 }
 
-// ── Авторизация ───────────────────────────────────────────────────────────────
+// ── Periodic offline check (every 5 min) ─────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  [1, 2].forEach(id => {
+    if (!lastDataTime[id]) return;
+    const gap = now - lastDataTime[id];
+    const label = id === 1 ? 'Outdoor' : 'Indoor';
+    if (gap > OFFLINE_THRESHOLD && !alertActive[`offline_${id}`] && canAlert(`offline_${id}`))
+      fireAlert(`offline_${id}`,
+        `📡 HomeClimate — ${label} sensor offline (${Math.round(gap / 60000)} min without data)`);
+  });
+}, 5 * 60 * 1000);
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
 function auth(req, res, next) {
   if (!API_KEY || req.headers['x-api-key'] !== API_KEY)
     return res.status(401).json({ error: 'Unauthorized' });
@@ -80,7 +162,7 @@ app.post('/api/data', auth, (req, res) => {
        VALUES (?, ?, ?, ?, ?)`
     ).run(sensor_id, temperature ?? null, humidity ?? null, temp_valid ? 1 : 0, hum_valid ? 1 : 0);
     console.log(`[data] sensor=${sensor_id} t=${temperature} h=${humidity}`);
-    if (temp_valid) checkAlerts(sensor_id, temperature);
+    if (temp_valid) checkAlerts(sensor_id, temperature, hum_valid ? humidity : null);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -109,7 +191,7 @@ app.get('/api/history', (req, res) => {
   const hours     = all ? null : Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 87600);
   const sensor_id = parseInt(req.query.sensor_id) || null;
   try {
-    let query  = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = 1`;
+    let query   = `SELECT sensor_id, temperature, humidity, created_at FROM readings WHERE temp_valid = 1`;
     const params = [];
     if (!all) {
       query += ` AND datetime(created_at) > datetime('now', ?)`;
@@ -126,6 +208,6 @@ app.get('/api/history', (req, res) => {
   }
 });
 
-// ── Старт ─────────────────────────────────────────────────────────────────────
+// ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`HomeClimate server on port ${PORT}`));
