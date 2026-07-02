@@ -23,6 +23,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_readings_time ON readings (created_at DESC);
 `);
+// Аддитивная миграция: столбец battery для уже существующей БД (идемпотентно).
+try { db.exec(`ALTER TABLE readings ADD COLUMN battery REAL`); } catch (e) { /* столбец уже есть */ }
 console.log(`DB: ${DB_PATH}`);
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -73,9 +75,19 @@ function fireRecovery(key, text) {
 }
 
 // ── Check alerts after each reading ──────────────────────────────────────────
-function checkAlerts(sensor_id, temperature, humidity) {
+function checkAlerts(sensor_id, temperature, humidity, battery = null) {
   lastDataTime[sensor_id] = Date.now();
   lastValues[sensor_id]   = { temperature, humidity };
+
+  // ── Разряд батареи уличного (1S Li-ion): порог 3.40В, восстановление 3.60В ──
+  if (sensor_id === 1 && battery != null) {
+    if (battery < 3.40) {
+      if (!alertActive['lowbat'] && canAlert('lowbat'))
+        fireAlert('lowbat', `🔋 HomeClimate — Outdoor battery LOW: ${battery.toFixed(2)}V`);
+    } else if (battery > 3.60 && alertActive['lowbat']) {
+      fireRecovery('lowbat', `✅ HomeClimate — Outdoor battery OK: ${battery.toFixed(2)}V`);
+    }
+  }
 
   // Sensor came back online
   if (alertActive[`offline_${sensor_id}`]) {
@@ -154,15 +166,15 @@ function auth(req, res, next) {
 
 // ── POST /api/data ────────────────────────────────────────────────────────────
 app.post('/api/data', auth, (req, res) => {
-  const { sensor_id, temperature, humidity, temp_valid, hum_valid } = req.body;
+  const { sensor_id, temperature, humidity, temp_valid, hum_valid, battery } = req.body;
   if (!sensor_id) return res.status(400).json({ error: 'sensor_id required' });
   try {
     db.prepare(
-      `INSERT INTO readings (sensor_id, temperature, humidity, temp_valid, hum_valid)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(sensor_id, temperature ?? null, humidity ?? null, temp_valid ? 1 : 0, hum_valid ? 1 : 0);
-    console.log(`[data] sensor=${sensor_id} t=${temperature} h=${humidity}`);
-    if (temp_valid) checkAlerts(sensor_id, temperature, hum_valid ? humidity : null);
+      `INSERT INTO readings (sensor_id, temperature, humidity, temp_valid, hum_valid, battery)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sensor_id, temperature ?? null, humidity ?? null, temp_valid ? 1 : 0, hum_valid ? 1 : 0, battery ?? null);
+    console.log(`[data] sensor=${sensor_id} t=${temperature} h=${humidity} bat=${battery ?? '-'}`);
+    if (temp_valid) checkAlerts(sensor_id, temperature, hum_valid ? humidity : null, battery ?? null);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -174,7 +186,7 @@ app.post('/api/data', auth, (req, res) => {
 app.get('/api/latest', (req, res) => {
   try {
     const rows = db.prepare(`
-      SELECT sensor_id, temperature, humidity, temp_valid, hum_valid, created_at
+      SELECT sensor_id, temperature, humidity, temp_valid, hum_valid, battery, created_at
       FROM readings
       WHERE id IN (SELECT MAX(id) FROM readings GROUP BY sensor_id)
       ORDER BY sensor_id
