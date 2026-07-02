@@ -96,6 +96,7 @@
         <div class="status-dot" id="out-dot"></div>
       </div>
       <div class="card-temp no-data" id="out-temp">—</div>
+      <div class="card-hum" id="out-bat"></div>
       <div class="card-time" id="out-time"></div>
     </div>
     <div class="card indoor">
@@ -181,6 +182,8 @@
           const el = document.getElementById('out-temp');
           el.textContent = fmt(s.temperature, ' °C');
           el.classList.toggle('no-data', s.temperature == null);
+          document.getElementById('out-bat').textContent =
+            s.battery != null ? '🔋 ' + fmt(s.battery, ' V') : '';
           document.getElementById('out-time').textContent = timeAgo(s.created_at);
           setDot(document.getElementById('out-dot'), s.created_at);
         }
