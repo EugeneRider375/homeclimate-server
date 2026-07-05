@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Воздух в доме — Privox</title>
+<style>
+  :root{
+    --bg:#eef1f6; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --good-bg:#dcfce7; --good:#15803d; --mod-bg:#fef3c7; --mod:#b45309;
+    --poor-bg:#ffedd5; --poor:#c2410c; --bad-bg:#fee2e2; --bad:#b91c1c;
+    --info-bg:#eef2ff; --info:#4338ca;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1117; --card:#161b26; --ink:#e6edf3; --muted:#8b98a9; --line:#232a36;
+      --good-bg:#0f2a1b; --good:#4ade80; --mod-bg:#2a220c; --mod:#fbbf24;
+      --poor-bg:#2a1a0c; --poor:#fb923c; --bad-bg:#2a1114; --bad:#f87171;
+      --info-bg:#171a33; --info:#a5b4fc;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0d1117; --card:#161b26; --ink:#e6edf3; --muted:#8b98a9; --line:#232a36;
+    --good-bg:#0f2a1b; --good:#4ade80; --mod-bg:#2a220c; --mod:#fbbf24;
+    --poor-bg:#2a1a0c; --poor:#fb923c; --bad-bg:#2a1114; --bad:#f87171;
+    --info-bg:#171a33; --info:#a5b4fc;
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f6; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --good-bg:#dcfce7; --good:#15803d; --mod-bg:#fef3c7; --mod:#b45309;
+    --poor-bg:#ffedd5; --poor:#c2410c; --bad-bg:#fee2e2; --bad:#b91c1c;
+    --info-bg:#eef2ff; --info:#4338ca;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:20px 16px 40px}
+  .wrap{max-width:760px;margin:0 auto}
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:22px;margin:0;font-weight:700;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block}
+  .dot.off{background:var(--bad)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px;
+    position:relative;overflow:hidden}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--muted)}
+  .card[data-s="good"]::before{background:var(--good)} .card[data-s="mod"]::before{background:var(--mod)}
+  .card[data-s="poor"]::before{background:var(--poor)} .card[data-s="bad"]::before{background:var(--bad)}
+  .card[data-s="info"]::before{background:var(--info)}
+  .k{color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px}
+  .v{font-size:34px;font-weight:750;line-height:1.1;margin:8px 0 2px}
+  .v .u{font-size:15px;font-weight:600;color:var(--muted);margin-left:3px}
+  .pill{display:inline-block;font-size:12.5px;font-weight:700;padding:3px 9px;border-radius:999px;margin-top:6px}
+  .card[data-s="good"] .pill{background:var(--good-bg);color:var(--good)}
+  .card[data-s="mod"]  .pill{background:var(--mod-bg);color:var(--mod)}
+  .card[data-s="poor"] .pill{background:var(--poor-bg);color:var(--poor)}
+  .card[data-s="bad"]  .pill{background:var(--bad-bg);color:var(--bad)}
+  .card[data-s="info"] .pill{background:var(--info-bg);color:var(--info)}
+  footer{color:var(--muted);font-size:12px;line-height:1.6;margin-top:20px}
+  footer b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏠 Воздух в доме</h1>
+    <div class="sub"><span class="dot" id="dot"></span><span id="upd">загрузка…</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="card" id="c-aqi"><div class="k">AQI · качество</div><div class="v" id="v-aqi">—</div><span class="pill" id="p-aqi">—</span></div>
+    <div class="card" id="c-eco2"><div class="k">eCO₂ · «духота»</div><div class="v" id="v-eco2">—<span class="u">ppm</span></div><span class="pill" id="p-eco2">—</span></div>
+    <div class="card" id="c-tvoc"><div class="k">TVOC · летучие</div><div class="v" id="v-tvoc">—<span class="u">ppb</span></div><span class="pill" id="p-tvoc">—</span></div>
+    <div class="card" id="c-co"><div class="k">CO · угарный газ</div><div class="v" id="v-co">—</div><span class="pill" id="p-co">—</span></div>
+    <div class="card" id="c-temp"><div class="k">Температура</div><div class="v" id="v-temp">—<span class="u">°C</span></div><span class="pill" id="p-temp">датчик</span></div>
+    <div class="card" id="c-hum"><div class="k">Влажность</div><div class="v" id="v-hum">—<span class="u">%</span></div><span class="pill" id="p-hum">—</span></div>
+  </div>
+
+  <footer>
+    <div><b>eCO₂</b> — оценка по летучим веществам, не настоящий CO₂. <b>CO</b> — сырое значение MQ-7 (пороги ещё калибруются). <b>Температура</b> может быть завышена: рядом греется датчик воздуха.</div>
+    <div id="age" style="margin-top:6px"></div>
+  </footer>
+</div>
+
+<script>
+const band = {
+  aqi:  v => v<=1?['Отлично','good']:v==2?['Хорошо','good']:v==3?['Средне','mod']:v==4?['Плохо','poor']:['Вредно','bad'],
+  eco2: v => v<1000?['Свежо','good']:v<1500?['Норма','mod']:v<2000?['Душно','poor']:['Проветрить','bad'],
+  tvoc: v => v<250?['Хорошо','good']:v<660?['Средне','mod']:v<2200?['Повышено','poor']:['Высоко','bad'],
+  hum:  v => v<30?['Сухо','mod']:v<=60?['Комфорт','good']:v<=70?['Влажно','mod']:['Сыро','poor'],
+};
+function set(id, val, unitHtml, pillText, s){
+  document.getElementById('v-'+id).innerHTML = (val==null?'—':val) + (unitHtml||'');
+  const p = document.getElementById('p-'+id); if(pillText!=null) p.textContent = pillText;
+  if(s!=null) document.getElementById('c-'+id).setAttribute('data-s', s);
+}
+async function tick(){
+  try{
+    const r = await fetch('/api/air', {cache:'no-store'});
+    if(!r.ok) throw 0;
+    const d = await r.json();
+    const m = d.metrics || {};
+    const online = d.status !== 'STALE' && d.ageSec != null;
+    document.getElementById('dot').className = 'dot' + (online?'':' off');
+    document.getElementById('upd').textContent = online ? ('обновлено '+(d.ageSec<60?d.ageSec+' c':Math.round(d.ageSec/60)+' мин')+' назад') : 'нет связи';
+
+    if('aqi' in m){ const [t,s]=band.aqi(m.aqi); set('aqi', m.aqi, '', t, s);} else set('aqi',null,'', '—','info');
+    if('eco2' in m){ const [t,s]=band.eco2(m.eco2); set('eco2', m.eco2, '<span class="u">ppm</span>', t, s);} else set('eco2',null,'<span class="u">ppm</span>','—','info');
+    if('tvoc' in m){ const [t,s]=band.tvoc(m.tvoc); set('tvoc', m.tvoc, '<span class="u">ppb</span>', t, s);} else set('tvoc',null,'<span class="u">ppb</span>','—','info');
+    if('coRaw' in m){ set('co', m.coRaw, '<span class="u">raw</span>', 'не калибр.', 'info'); } else set('co',null,'<span class="u">raw</span>','—','info');
+    if('temperature' in m){ set('temp', m.temperature.toFixed? m.temperature.toFixed(1):m.temperature, '<span class="u">°C</span>', 'датчик', 'info'); } else set('temp',null,'<span class="u">°C</span>','датчик','info');
+    if('humidity' in m){ const [t,s]=band.hum(m.humidity); set('hum', Math.round(m.humidity), '<span class="u">%</span>', t, s);} else set('hum',null,'<span class="u">%</span>','—','info');
+    document.getElementById('age').textContent = 'Источник: PrivoxPTT · датчик «'+(d.name||'AirClimate')+'»';
+  }catch(e){
+    document.getElementById('dot').className='dot off';
+    document.getElementById('upd').textContent='нет данных';
+  }
+}
+tick(); setInterval(tick, 15000);
+</script>
+</body>
+</html>

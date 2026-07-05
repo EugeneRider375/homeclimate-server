@@ -220,6 +220,31 @@ app.get('/api/history', (req, res) => {
   }
 });
 
+// ── GET /api/air — прокси к PrivoxPTT: отдаём метрики датчика AirClimate ──────
+// Сервер сам ходит в публичный API PrivoxPTT (read-ключ прячем тут, в браузер не отдаём),
+// обходя CORS. Страница public/air.html берёт данные отсюда (свой origin).
+const PRIVOX_READ_KEY = process.env.PRIVOX_READ_KEY || 'pvx-read-7e1c9a4b2f8d6035';
+app.get('/api/air', (req, res) => {
+  const r = https.request({
+    hostname: 'ptt.privox.tech', path: '/api/public/sensors', method: 'GET',
+    headers: { 'X-Read-Key': PRIVOX_READ_KEY }, timeout: 8000,
+  }, (up) => {
+    let data = '';
+    up.on('data', (c) => data += c);
+    up.on('end', () => {
+      try {
+        const j = JSON.parse(data);
+        const s = (j.sensors || []).find((x) => String(x.name || '').replace(/\s/g, '') === 'AirClimate');
+        if (!s) return res.status(404).json({ error: 'AirClimate not found' });
+        res.json({ name: String(s.name).trim(), status: s.status, ageSec: s.ageSec, metrics: s.metrics || {} });
+      } catch (e) { res.status(502).json({ error: 'parse error' }); }
+    });
+  });
+  r.on('error', () => res.status(502).json({ error: 'upstream error' }));
+  r.on('timeout', () => { r.destroy(); res.status(504).json({ error: 'timeout' }); });
+  r.end();
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`HomeClimate server on port ${PORT}`));
