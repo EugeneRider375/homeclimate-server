@@ -69,7 +69,7 @@
   </header>
   <div class="grid" id="grid"></div>
   <footer>
-    <div><b>eCO₂</b> — оценка по летучим веществам, не настоящий CO₂. <b>CO</b> — сырое значение MQ-7, датчик пока калибруется (цвет появится после прогрева). <b>Температура</b> может быть завышена: рядом греется датчик воздуха.</div>
+    <div><b>eCO₂</b> — оценка по летучим веществам, не настоящий CO₂. <b>CO</b> — сырое значение MQ-7 (baseline ~620 в чистом воздухе); пороги предварительные, проверь дымом и уточним. <b>Температура</b> может быть завышена: рядом греется датчик воздуха.</div>
     <div id="src" style="margin-top:6px"></div>
   </footer>
 </div>
@@ -86,9 +86,9 @@ const M = [
   {key:'tvoc', name:'TVOC · летучие', min:0, max:1000, fmt:v=>Math.round(v), unit:'ppb',
    zones:[[250,'good'],[660,'mod'],[1e9,'poor']],
    word:v=>v<250?['Хорошо','good']:v<660?['Средне','mod']:['Повышено','poor']},
-  {key:'coRaw', name:'CO · угарный газ', min:0, max:4095, fmt:v=>Math.round(v), unit:'raw',
-   zones:[[4095,'info']],
-   word:v=>['калибруется','info']},
+  {key:'coRaw', name:'CO · угарный газ', min:400, max:3000, fmt:v=>Math.round(v), unit:'raw',
+   zones:[[950,'good'],[1500,'mod'],[2200,'poor'],[1e9,'bad']],
+   word:v=>v<950?['Спокойно','good']:v<1500?['Рост','mod']:v<2200?['Высоко','poor']:['ТРЕВОГА','bad']},
   {key:'temperature', name:'Температура', min:10, max:35, fmt:v=>v.toFixed(1), unit:'°C',
    zones:[[18,'mod'],[26,'good'],[1e9,'mod']],
    word:v=>v<18?['Прохладно','mod']:v<=26?['Комфорт','good']:['Тепло','mod']},
